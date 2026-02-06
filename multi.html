@@ -291,7 +291,7 @@
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
     import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-    import { getFirestore, doc, setDoc, updateDoc, onSnapshot, getDoc, arrayUnion, addDoc, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, updateDoc, onSnapshot, getDoc, arrayUnion, addDoc, collection, serverTimestamp, increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
     const firebaseConfig = { apiKey: "AIzaSyAj0BepQS_4kLTWmCF8rSzqW44XkgefEG8", authDomain: "harmonix-5c90e.firebaseapp.com", projectId: "harmonix-5c90e", storageBucket: "harmonix-5c90e.firebasestorage.app", messagingSenderId: "659742972654", appId: "1:659742972654:web:f8d532a857da37519db1ff", measurementId: "G-JHVY16ZDHY" };
     
@@ -312,13 +312,15 @@
             const roomParam = urlParams.get('room');
             
             if (mode === 'host') {
-                document.getElementById('intro-loader').classList.add('hidden');
+                // Host: โหลดเสร็จแล้วค่อยสร้างห้อง
                 createRoom(); 
             } else if (mode === 'join') {
-                document.getElementById('intro-loader').classList.add('hidden');
                 if (roomParam) {
-                    joinRoom(roomParam); // Auto join
+                    // **แก้ไข: ถ้ามีรหัสห้องมากับลิงก์ ให้จอยเลย ไม่ต้องปิด Loader**
+                    joinRoom(roomParam); 
                 } else {
+                    // ถ้าไม่มีรหัสห้อง ค่อยปิด Loader แล้วโชว์หน้ากรอกรหัส
+                    document.getElementById('intro-loader').classList.add('hidden');
                     showJoin(); 
                 }
             } else {
@@ -457,11 +459,15 @@
                 players:{[currentUser.uid]:{name:currentUser.displayName, avatar:currentUser.photoURL, score:0, uid:currentUser.uid}}, endTime:0,
                 settings: gameSettings
             });
+            // Host creates -> hide loader here
+            document.getElementById('intro-loader').classList.add('hidden');
             enterLobby();
-        } catch(e) { alert("Error: "+e.message); }
+        } catch(e) { 
+            alert("Error: "+e.message); 
+            document.getElementById('intro-loader').classList.add('hidden');
+        }
     };
 
-    // FIX: Accepts ID directly
     window.joinRoom = async (forceId = null) => {
         roomId = forceId || document.getElementById('room-pin').value;
         if (!roomId) return alert("กรุณาใส่รหัสห้อง");
@@ -472,11 +478,15 @@
             if(snap.exists() && snap.data().status==='waiting') {
                 isHost=false;
                 await updateDoc(ref, { [`players.${currentUser.uid}`]:{name:currentUser.displayName, avatar:currentUser.photoURL, score:0, uid:currentUser.uid} });
+                
+                // **แก้ไข: เข้าสำเร็จแล้วค่อยปิด Loader**
+                document.getElementById('intro-loader').classList.add('hidden');
                 enterLobby();
             } else { throw new Error("ไม่พบห้อง หรือห้องเต็มแล้ว"); }
         } catch(e) { 
             alert("Error: "+e.message); 
-            // If failed auto-join, revert to manual
+            // ถ้า Join พลาด ค่อยปิด Loader แล้วกลับไปหน้าใส่รหัส
+            document.getElementById('intro-loader').classList.add('hidden');
             document.getElementById('join-screen').classList.remove('hidden');
         }
     };
@@ -495,7 +505,6 @@
             const data = snap.data();
             selectedDiff = data.difficulty;
             
-            // FIX: Load settings robustly
             if(data.settings) gameSettings = data.settings;
             else gameSettings = { time:30, rounds:10 };
 
@@ -535,7 +544,6 @@
                      startTimer(data.endTime);
                      roundStartTime = Date.now();
                      playSfx('start'); 
-                     // Safe Load
                      setTimeout(() => loadPuzzleFromBank(data.qIndex || 0), 100);
                 }
             }
@@ -610,7 +618,6 @@
         if(window.timerInterval) clearInterval(window.timerInterval);
         
         window.timerInterval = setInterval(() => {
-            // FIX: Defensive coding to prevent crash
             const duration = (gameSettings && gameSettings.time > 0) ? gameSettings.time : 30;
             const left = Math.ceil((endTime - Date.now())/1000);
             
