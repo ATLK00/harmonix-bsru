@@ -300,6 +300,35 @@
     const db = getFirestore(app);
     let currentUser = null;
 
+    // --- AUTO START LOGIC ---
+    auth.onAuthStateChanged(u => {
+        if(u) { 
+            currentUser = u;
+            document.getElementById('u-name').innerText=u.displayName || "Player"; 
+            document.getElementById('u-img').src=u.photoURL || "https://api.dicebear.com/7.x/fun-emoji/svg?seed=Guest";
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const mode = urlParams.get('mode');
+            const roomParam = urlParams.get('room');
+            
+            if (mode === 'host') {
+                document.getElementById('intro-loader').classList.add('hidden');
+                createRoom(); 
+            } else if (mode === 'join') {
+                document.getElementById('intro-loader').classList.add('hidden');
+                if (roomParam) {
+                    joinRoom(roomParam); // Auto join
+                } else {
+                    showJoin(); 
+                }
+            } else {
+                document.getElementById('intro-loader').classList.add('hidden');
+            }
+        } else {
+            window.location.href='index.html';
+        }
+    });
+
     // --- AUDIO SYSTEM ---
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const SFX = {
@@ -315,7 +344,7 @@
     const NOTE_FREQS = { 'c': 261.63, 'c#': 277.18, 'db': 277.18, 'd': 293.66, 'd#': 311.13, 'eb': 311.13, 'e': 329.63, 'f': 349.23, 'f#': 369.99, 'gb': 369.99, 'g': 392.00, 'g#': 415.30, 'ab': 415.30, 'a': 440.00, 'a#': 466.16, 'bb': 466.16, 'b': 493.88 };
     window.playToneNote = (noteName) => { try { if(audioCtx.state === 'suspended') audioCtx.resume(); const n = scoreData[0].beats[0][curV]; let freq = NOTE_FREQS[noteName.toLowerCase()] || 440; const octDiff = n.o - 4; freq = freq * Math.pow(2, octDiff); const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain(); osc.type = 'sine'; osc.frequency.value = freq; osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.5); osc.stop(audioCtx.currentTime + 0.5); } catch(e) {} };
 
-    // --- CONSTANTS ---
+    // --- GAME CONSTANTS ---
     const QUEST_BANK = [
         { k:'C', n:'C Major (I)', m:'s', s:{n:'c',o:5}, a:{n:'g',o:4}, t:{n:'e',o:4}, b:{n:'c',o:4}, diff:'easy' },
         { k:'C', n:'F Major (IV)', m:'a', s:{n:'c',o:5}, a:{n:'a',o:4}, t:{n:'f',o:4}, b:{n:'f',o:3}, diff:'easy' },
@@ -343,10 +372,10 @@
     const KEY_SIGS = { 'C': {}, 'G': {f:'#'}, 'D': {f:'#',c:'#'}, 'A': {f:'#',c:'#',g:'#'}, 'E': {f:'#',c:'#',g:'#',d:'#'}, 'F': {b:'b'}, 'Bb': {b:'b',e:'b'}, 'Eb': {b:'b',e:'b',a:'b'}, 'Ab': {b:'b',e:'b',a:'b',d:'b'}, 'Db': {b:'b',e:'b',a:'b',d:'b',g:'b'}, 'B': {f:'#',c:'#',g:'#',d:'#',a:'#'}, 'F#': {f:'#',c:'#',g:'#',d:'#',a:'#',e:'#'} };
     const DIFF_SETTINGS = { 'easy': { color:'#34D399', mult:1 }, 'medium': { color:'#FACC15', mult:1.5 }, 'hard': { color:'#F43F5E', mult:2 } };
 
-    let user=null, roomId=null, isHost=false, score=0;
+    let roomId=null, isHost=false, score=0;
     let isGameRunning = false; 
     let selectedDiff = 'easy';
-    let gameSettings = { time: 30, rounds: 10 };
+    let gameSettings = { time: 30, rounds: 10 }; // Default settings
     
     let curV='s', missingVoice='s', targetSolution=null, currentKey='C';
     let historyStack=[];
@@ -355,39 +384,9 @@
     let roundStartTime = 0;
     let selectedPlayer = null; 
 
-    // --- AUTO START LOGIC ---
-    auth.onAuthStateChanged(u => {
-        if(u) { 
-            user=u; 
-            
-            // Check Auto Join Params
-            const urlParams = new URLSearchParams(window.location.search);
-            const mode = urlParams.get('mode');
-            const roomParam = urlParams.get('room');
-            
-            if (mode === 'host') {
-                document.getElementById('intro-loader').classList.add('hidden'); // Hide loader
-                createRoom(); 
-            } else if (mode === 'join') {
-                document.getElementById('intro-loader').classList.add('hidden');
-                if (roomParam) {
-                    roomId = roomParam;
-                    joinRoom(); // Auto join with param
-                } else {
-                    showJoin(); // Show input
-                }
-            } else {
-                document.getElementById('intro-loader').classList.add('hidden');
-            }
-        } else {
-            // Not logged in -> Redirect
-            window.location.href='index.html';
-        }
-    });
-
     // --- FRIENDS & PLAYER ACTIONS ---
     window.handlePlayerClick = (pData) => {
-        if(pData.uid === user.uid) return; 
+        if(pData.uid === currentUser.uid) return; 
         selectedPlayer = pData;
         document.getElementById('p-modal-img').src = pData.avatar;
         document.getElementById('p-modal-name').innerText = pData.name;
@@ -397,7 +396,7 @@
     window.addFriendAction = async () => {
         if(!selectedPlayer) return;
         try {
-            await updateDoc(doc(db, "users", user.uid), {
+            await updateDoc(doc(db, "users", currentUser.uid), {
                 friends: arrayUnion({ uid: selectedPlayer.uid, name: selectedPlayer.name, avatar: selectedPlayer.avatar })
             });
             alert(`เพิ่ม ${selectedPlayer.name} เป็นเพื่อนแล้ว!`);
@@ -410,8 +409,8 @@
         try {
             await addDoc(collection(db, `users/${friend.uid}/notifications`), {
                 type: 'invite',
-                fromName: user.displayName,
-                fromUid: user.uid,
+                fromName: currentUser.displayName,
+                fromUid: currentUser.uid,
                 roomId: roomId,
                 timestamp: serverTimestamp()
             });
@@ -425,7 +424,7 @@
         list.innerHTML = `<div style="text-align:center; margin-top:20px; color:#94A3B8;">กำลังโหลด...</div>`;
         
         try {
-            const docSnap = await getDoc(doc(db, "users", user.uid));
+            const docSnap = await getDoc(doc(db, "users", currentUser.uid));
             if(docSnap.exists() && docSnap.data().friends && docSnap.data().friends.length > 0) {
                 const friends = docSnap.data().friends;
                 list.innerHTML = "";
@@ -454,17 +453,17 @@
             roomId = Math.floor(100000+Math.random()*900000).toString();
             isHost=true;
             await setDoc(doc(db,"rooms",roomId), { 
-                host:user.uid, status:'waiting', difficulty:'easy', qIndex:0, roundResults:{},
-                players:{[user.uid]:{name:user.displayName, avatar:user.photoURL, score:0, uid:user.uid}}, endTime:0,
+                host:currentUser.uid, status:'waiting', difficulty:'easy', qIndex:0, roundResults:{},
+                players:{[currentUser.uid]:{name:currentUser.displayName, avatar:currentUser.photoURL, score:0, uid:currentUser.uid}}, endTime:0,
                 settings: gameSettings
             });
             enterLobby();
         } catch(e) { alert("Error: "+e.message); }
     };
 
-    window.joinRoom = async (startRoomId = null) => {
-        // Use auto-param if exists, else input
-        roomId = startRoomId || document.getElementById('room-pin').value;
+    // FIX: Accepts ID directly
+    window.joinRoom = async (forceId = null) => {
+        roomId = forceId || document.getElementById('room-pin').value;
         if (!roomId) return alert("กรุณาใส่รหัสห้อง");
 
         try {
@@ -472,10 +471,14 @@
             const snap = await getDoc(ref);
             if(snap.exists() && snap.data().status==='waiting') {
                 isHost=false;
-                await updateDoc(ref, { [`players.${user.uid}`]:{name:user.displayName, avatar:user.photoURL, score:0, uid:user.uid} });
+                await updateDoc(ref, { [`players.${currentUser.uid}`]:{name:currentUser.displayName, avatar:currentUser.photoURL, score:0, uid:currentUser.uid} });
                 enterLobby();
             } else { throw new Error("ไม่พบห้อง หรือห้องเต็มแล้ว"); }
-        } catch(e) { alert("Error: "+e.message); }
+        } catch(e) { 
+            alert("Error: "+e.message); 
+            // If failed auto-join, revert to manual
+            document.getElementById('join-screen').classList.remove('hidden');
+        }
     };
 
     window.showJoin = () => { document.getElementById('join-screen').classList.remove('hidden'); };
@@ -492,7 +495,7 @@
             const data = snap.data();
             selectedDiff = data.difficulty;
             
-            // Safety Fallback for settings
+            // FIX: Load settings robustly
             if(data.settings) gameSettings = data.settings;
             else gameSettings = { time:30, rounds:10 };
 
@@ -532,7 +535,8 @@
                      startTimer(data.endTime);
                      roundStartTime = Date.now();
                      playSfx('start'); 
-                     setTimeout(() => loadPuzzleFromBank(data.qIndex), 100);
+                     // Safe Load
+                     setTimeout(() => loadPuzzleFromBank(data.qIndex || 0), 100);
                 }
             }
             else if(data.status==='summary') {
@@ -549,8 +553,7 @@
         if(!isHost || !roomId) return;
         const time = parseInt(document.getElementById('sel-time').value) || 30;
         const rounds = parseInt(document.getElementById('sel-round').value) || 10;
-        gameSettings.time = time;
-        gameSettings.rounds = rounds;
+        gameSettings = { time, rounds };
         await updateDoc(doc(db,"rooms",roomId), { settings: gameSettings });
     };
 
@@ -565,8 +568,7 @@
     window.startGameHost = async () => {
         const time = parseInt(document.getElementById('sel-time').value) || 30;
         const rounds = parseInt(document.getElementById('sel-round').value) || 10;
-        gameSettings.time = time;
-        gameSettings.rounds = rounds;
+        gameSettings = { time, rounds };
 
         const validQs = QUEST_BANK.map((q,i)=>({q,i})).filter(x => x.q.diff === selectedDiff || (selectedDiff==='hard')); 
         const firstQ = validQs[Math.floor(Math.random()*validQs.length)]?.i || 0;
@@ -608,8 +610,8 @@
         if(window.timerInterval) clearInterval(window.timerInterval);
         
         window.timerInterval = setInterval(() => {
-            // Safety Check
-            const duration = (gameSettings?.time) || 30;
+            // FIX: Defensive coding to prevent crash
+            const duration = (gameSettings && gameSettings.time > 0) ? gameSettings.time : 30;
             const left = Math.ceil((endTime - Date.now())/1000);
             
             const bar = document.getElementById('timer-bar-fill');
@@ -677,9 +679,9 @@
             if(points < minScore) points = minScore;
             score += points;
             document.getElementById('score-disp').innerText = score;
-            await updateDoc(doc(db,"rooms",roomId), { [`players.${user.uid}.score`]:score });
+            await updateDoc(doc(db,"rooms",roomId), { [`players.${currentUser.uid}.score`]:score });
         } else { playSfx('wrong'); }
-        await updateDoc(doc(db,"rooms",roomId), { [`roundResults.${user.uid}`]: isCorrect });
+        await updateDoc(doc(db,"rooms",roomId), { [`roundResults.${currentUser.uid}`]: isCorrect });
     };
 
     function showSummary(results, qIdx) {
@@ -735,7 +737,7 @@
             div.onclick = () => handlePlayerClick(p);
             list.appendChild(div);
         });
-        if(score>0) updateDoc(doc(db, "users", user.uid), { rankPoints: increment(Math.floor(score/10)) });
+        if(score>0) updateDoc(doc(db, "users", currentUser.uid), { rankPoints: increment(Math.floor(score/10)) });
     }
 
     function renderScore(targetDiv, data, key, highlightVoice, isGame, isSolution=false) {
