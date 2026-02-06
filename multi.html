@@ -300,33 +300,37 @@
     const db = getFirestore(app);
     let currentUser = null;
 
+    // ดึงค่าจาก URL มารอไว้ก่อนเลย
+    const urlParams = new URLSearchParams(window.location.search);
+    const mode = urlParams.get('mode');
+    const roomParam = urlParams.get('room');
+
     // --- AUTO START LOGIC ---
     auth.onAuthStateChanged(u => {
         if(u) { 
             currentUser = u;
-            document.getElementById('u-name').innerText=u.displayName || "Player"; 
-            document.getElementById('u-img').src=u.photoURL || "https://api.dicebear.com/7.x/fun-emoji/svg?seed=Guest";
-            
-            const urlParams = new URLSearchParams(window.location.search);
-            const mode = urlParams.get('mode');
-            const roomParam = urlParams.get('room');
+            document.getElementById('u-name').innerText = u.displayName || "Player"; 
+            document.getElementById('u-img').src = u.photoURL || "https://api.dicebear.com/7.x/fun-emoji/svg?seed=Guest";
             
             if (mode === 'host') {
-                // Host: โหลดเสร็จแล้วค่อยสร้างห้อง
+                document.getElementById('intro-loader').classList.add('hidden');
                 createRoom(); 
             } else if (mode === 'join') {
                 if (roomParam) {
-                    // **แก้ไข: ถ้ามีรหัสห้องมากับลิงก์ ให้จอยเลย ไม่ต้องปิด Loader**
+                    // ถ้ามีรหัสห้องมากับลิงก์ ให้ขึ้นสถานะและจอยเลย
+                    document.querySelector('#intro-loader .loading-text').innerText = "กำลังเข้าร่วมห้อง...";
                     joinRoom(roomParam); 
                 } else {
-                    // ถ้าไม่มีรหัสห้อง ค่อยปิด Loader แล้วโชว์หน้ากรอกรหัส
+                    // ถ้าไม่มีรหัสห้อง ปิด Loader แล้วโชว์หน้ากรอกรหัสปกติ
                     document.getElementById('intro-loader').classList.add('hidden');
                     showJoin(); 
                 }
             } else {
+                // กรณีเข้ามาเฉยๆ ไม่มี mode
                 document.getElementById('intro-loader').classList.add('hidden');
             }
         } else {
+            // ถ้ายังไม่ล็อกอิน ดีดไปหน้าแรก
             window.location.href='index.html';
         }
     });
@@ -459,7 +463,6 @@
                 players:{[currentUser.uid]:{name:currentUser.displayName, avatar:currentUser.photoURL, score:0, uid:currentUser.uid}}, endTime:0,
                 settings: gameSettings
             });
-            // Host creates -> hide loader here
             document.getElementById('intro-loader').classList.add('hidden');
             enterLobby();
         } catch(e) { 
@@ -469,23 +472,46 @@
     };
 
     window.joinRoom = async (forceId = null) => {
+        // ใช้ forceId ถ้ามี ถ้าไม่มีให้เอาจาก input
         roomId = forceId || document.getElementById('room-pin').value;
         if (!roomId) return alert("กรุณาใส่รหัสห้อง");
+        
+        // ลบช่องว่างเผื่อ copy มาผิด
+        roomId = roomId.toString().trim();
 
         try {
             const ref = doc(db,"rooms",roomId);
             const snap = await getDoc(ref);
+            
             if(snap.exists() && snap.data().status==='waiting') {
-                isHost=false;
-                await updateDoc(ref, { [`players.${currentUser.uid}`]:{name:currentUser.displayName, avatar:currentUser.photoURL, score:0, uid:currentUser.uid} });
+                const data = snap.data();
                 
-                // **แก้ไข: เข้าสำเร็จแล้วค่อยปิด Loader**
+                // ตรวจสอบว่าเราเป็น Host หรือไม่ (ป้องกันกรณี Host กด Join ลิงก์ตัวเอง)
+                if (data.host === currentUser.uid) {
+                    isHost = true;
+                } else {
+                    isHost = false;
+                }
+
+                // อัปเดตข้อมูลผู้เล่นในห้อง
+                await updateDoc(ref, { 
+                    [`players.${currentUser.uid}`]: {
+                        name: currentUser.displayName, 
+                        avatar: currentUser.photoURL, 
+                        score: 0, 
+                        uid: currentUser.uid
+                    } 
+                });
+
+                // ** สำคัญ: เข้าห้องสำเร็จแล้วค่อยปิด Loader **
                 document.getElementById('intro-loader').classList.add('hidden');
                 enterLobby();
-            } else { throw new Error("ไม่พบห้อง หรือห้องเต็มแล้ว"); }
+            } else { 
+                throw new Error("ไม่พบห้อง หรือห้องเริ่มเล่นไปแล้ว"); 
+            }
         } catch(e) { 
-            alert("Error: "+e.message); 
-            // ถ้า Join พลาด ค่อยปิด Loader แล้วกลับไปหน้าใส่รหัส
+            // ถ้า Error ให้แจ้งเตือน แล้วค่อยดีดกลับไปหน้าใส่รหัส
+            alert("เข้าร่วมไม่ได้: " + e.message); 
             document.getElementById('intro-loader').classList.add('hidden');
             document.getElementById('join-screen').classList.remove('hidden');
         }
@@ -497,6 +523,8 @@
         document.getElementById('join-screen').classList.add('hidden');
         document.getElementById('lobby-screen').classList.remove('hidden');
         document.getElementById('pin-disp').innerText = roomId;
+        
+        // เช็คอีกทีว่าเป็น Host ไหม เพื่อโชว์ปุ่มตั้งค่า
         if(isHost) document.getElementById('host-controls').classList.remove('hidden');
         else document.getElementById('client-wait').classList.remove('hidden');
 
@@ -801,5 +829,6 @@
         document.querySelectorAll('.btn-n').forEach(b => b.classList.toggle('active', b.id===`n-${n}`));
     }
 </script>
+
 </body>
 </html>
