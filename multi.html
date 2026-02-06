@@ -159,7 +159,7 @@
             </div>
         </div>
         
-        <div style="margin:10px 0 20px; font-weight:bold; color:#94A3B8; font-size:0.9rem;">ผู้เล่นในห้อง</div>
+        <div style="margin:10px 0 20px; font-weight:bold; color:#94A3B8; font-size:0.9rem;">ผู้เล่นในห้อง (รอเพื่อน...)</div>
         <div class="p-list" id="player-list"></div>
         
         <div id="host-controls" class="hidden" style="width:100%; max-width:400px;">
@@ -315,7 +315,7 @@
     const NOTE_FREQS = { 'c': 261.63, 'c#': 277.18, 'db': 277.18, 'd': 293.66, 'd#': 311.13, 'eb': 311.13, 'e': 329.63, 'f': 349.23, 'f#': 369.99, 'gb': 369.99, 'g': 392.00, 'g#': 415.30, 'ab': 415.30, 'a': 440.00, 'a#': 466.16, 'bb': 466.16, 'b': 493.88 };
     window.playToneNote = (noteName) => { try { if(audioCtx.state === 'suspended') audioCtx.resume(); const n = scoreData[0].beats[0][curV]; let freq = NOTE_FREQS[noteName.toLowerCase()] || 440; const octDiff = n.o - 4; freq = freq * Math.pow(2, octDiff); const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain(); osc.type = 'sine'; osc.frequency.value = freq; osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.5); osc.stop(audioCtx.currentTime + 0.5); } catch(e) {} };
 
-    // --- GAME CONSTANTS ---
+    // --- CONSTANTS ---
     const QUEST_BANK = [
         { k:'C', n:'C Major (I)', m:'s', s:{n:'c',o:5}, a:{n:'g',o:4}, t:{n:'e',o:4}, b:{n:'c',o:4}, diff:'easy' },
         { k:'C', n:'F Major (IV)', m:'a', s:{n:'c',o:5}, a:{n:'a',o:4}, t:{n:'f',o:4}, b:{n:'f',o:3}, diff:'easy' },
@@ -346,7 +346,7 @@
     let user=null, roomId=null, isHost=false, score=0;
     let isGameRunning = false; 
     let selectedDiff = 'easy';
-    let gameSettings = { time: 30, rounds: 10, gameType: 'harmony_blitz' };
+    let gameSettings = { time: 30, rounds: 10 };
     
     let curV='s', missingVoice='s', targetSolution=null, currentKey='C';
     let historyStack=[];
@@ -359,8 +359,6 @@
     auth.onAuthStateChanged(u => {
         if(u) { 
             user=u; 
-            document.getElementById('u-name').innerText=u.displayName || "Player"; 
-            document.getElementById('u-img').src=u.photoURL || "https://api.dicebear.com/7.x/fun-emoji/svg?seed=Guest";
             
             // Check Auto Join Params
             const urlParams = new URLSearchParams(window.location.search);
@@ -464,11 +462,9 @@
         } catch(e) { alert("Error: "+e.message); }
     };
 
-    window.joinRoom = async () => {
-        // Use global roomId if set by auto-join, else get from input
-        const inputVal = document.getElementById('room-pin').value;
-        if (!roomId && inputVal) roomId = inputVal; 
-        
+    window.joinRoom = async (startRoomId = null) => {
+        // Use auto-param if exists, else input
+        roomId = startRoomId || document.getElementById('room-pin').value;
         if (!roomId) return alert("กรุณาใส่รหัสห้อง");
 
         try {
@@ -495,7 +491,10 @@
             if(!snap.exists()) return;
             const data = snap.data();
             selectedDiff = data.difficulty;
+            
+            // Safety Fallback for settings
             if(data.settings) gameSettings = data.settings;
+            else gameSettings = { time:30, rounds:10 };
 
             if(!isHost) {
                 const diffEl = document.getElementById('client-diff-disp');
@@ -605,14 +604,20 @@
             diffEl.innerText = selectedDiff.toUpperCase();
             diffEl.style.color = DIFF_SETTINGS[selectedDiff].color;
         }
+        
         if(window.timerInterval) clearInterval(window.timerInterval);
+        
         window.timerInterval = setInterval(() => {
-            const duration = (gameSettings && gameSettings.time > 0) ? gameSettings.time : 30;
+            // Safety Check
+            const duration = (gameSettings?.time) || 30;
             const left = Math.ceil((endTime - Date.now())/1000);
+            
             const bar = document.getElementById('timer-bar-fill');
             if(bar) bar.style.width = `${Math.max(0,(left/duration)*100)}%`;
+            
             if(left > 0 && left <= 5) document.body.classList.add('urgent-mode');
             else document.body.classList.remove('urgent-mode');
+
             if(left<=0) {
                 document.body.classList.remove('urgent-mode');
                 clearInterval(window.timerInterval);
@@ -635,7 +640,6 @@
             if(snap.exists()) {
                 const rNum = snap.data().roundNum || 1;
                 window.lastRoundNum = rNum;
-                // No Round Display
             }
         });
         const checkVex = setInterval(() => {
@@ -666,8 +670,8 @@
         if(isCorrect) {
             playSfx('correct');
             const elapsedTime = (Date.now() - roundStartTime) / 1000; 
-            const maxScore = 1000; const minScore = 600; // Balanced
-            const duration = (gameSettings && gameSettings.time) ? gameSettings.time : 30;
+            const maxScore = 1000; const minScore = 600; 
+            const duration = (gameSettings?.time) || 30;
             const scoreDrop = (elapsedTime / duration) * (maxScore - minScore); 
             let points = Math.round(maxScore - scoreDrop);
             if(points < minScore) points = minScore;
