@@ -429,5 +429,75 @@
     window.setNote = (n) => { scoreData[0].beats[0][curV].n = n; renderScore(document.getElementById("vexflow-out"), scoreData[0], currentKey, missingVoice, true); };
     window.playSfx = (t) => console.log("SFX:", t);
 </script>
+<div id="invite-toast" style="position:fixed; top:20px; right:20px; background:#1E293B; color:white; padding:15px; border-radius:12px; border-left:4px solid #FACC15; display:none; z-index:9999; box-shadow:0 10px 30px rgba(0,0,0,0.5); animation: slideIn 0.5s;">
+    <div style="font-weight:bold; margin-bottom:5px;">คำเชิญเล่นเกม! 🎮</div>
+    <div id="inv-msg" style="font-size:0.9rem; color:#94A3B8;">User ชวนคุณเล่น</div>
+    <div style="margin-top:10px; display:flex; gap:10px;">
+        <button onclick="acceptInvite()" style="flex:1; background:#38BDF8; border:none; border-radius:6px; padding:6px; color:#0F172A; font-weight:bold; cursor:pointer;">เข้าร่วม</button>
+        <button onclick="closeInvite()" style="flex:1; background:transparent; border:1px solid #475569; border-radius:6px; padding:6px; color:#94A3B8; cursor:pointer;">ไม่สน</button>
+    </div>
+</div>
+
+<style> @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } } </style>
+
+<script type="module">
+    import { getFirestore, collection, onSnapshot, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+    
+    const db = getFirestore();
+    const auth = getAuth();
+    let currentInvite = null;
+    let autoCloseTimer = null;
+
+    onAuthStateChanged(auth, (user) => {
+        if(user) {
+            onSnapshot(collection(db, `users/${user.uid}/notifications`), (snap) => {
+                snap.docChanges().forEach(change => {
+                    if (change.type === "added") {
+                        const data = change.doc.data();
+                        if(data.type === 'invite') {
+                            currentInvite = { id: change.doc.id, ...data };
+                            showInvite(data);
+                        }
+                    }
+                });
+            });
+        }
+    });
+
+    function showInvite(data) {
+        const toast = document.getElementById('invite-toast');
+        document.getElementById('inv-msg').innerText = `${data.fromName} ชวนคุณเล่นเกม!`;
+        toast.style.display = 'block';
+        
+        // เล่นเสียงเตือน (ถ้ามีไฟล์เสียง)
+        try { new Audio("https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3").play().catch(()=>{}); } catch(e){}
+
+        // **ตั้งเวลา 5 วินาที แล้วปิดเอง**
+        if(autoCloseTimer) clearTimeout(autoCloseTimer);
+        autoCloseTimer = setTimeout(() => {
+            closeInvite();
+        }, 5000); 
+    }
+
+    window.closeInvite = () => {
+        const toast = document.getElementById('invite-toast');
+        toast.style.display = 'none';
+        // ลบ Invite ออกจาก DB ด้วยเพื่อไม่ให้ค้าง
+        if(currentInvite && auth.currentUser) {
+             deleteDoc(doc(db, `users/${auth.currentUser.uid}/notifications/${currentInvite.id}`)).catch(()=>{});
+        }
+    };
+
+    window.acceptInvite = async () => {
+        if(currentInvite) {
+            // ลบแจ้งเตือน
+            await deleteDoc(doc(db, `users/${auth.currentUser.uid}/notifications/${currentInvite.id}`));
+            // **ส่งรหัสห้องไปด้วย เพื่อให้ auto-join**
+            window.location.href = `multi.html?mode=join&room=${currentInvite.roomId}`; 
+        }
+    };
+</script>
+
 </body>
 </html>
