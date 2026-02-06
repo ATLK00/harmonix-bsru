@@ -99,6 +99,17 @@
         #summary-overlay, #friends-overlay, #player-overlay { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.98); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(8px); padding: 20px; }
         #waiting-overlay { position: absolute; inset: 0; background: rgba(15,23,42,0.95); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(5px); }
         
+        /* สไตล์หน้าเฉลยใหม่ */
+        #summary-vex-container { 
+            width: 100%; 
+            max-width: 400px; 
+            background: rgba(255,255,255,0.03); 
+            border-radius: 15px; 
+            margin-bottom: 20px;
+            padding: 10px;
+            filter: invert(100%) opacity(0.9) drop-shadow(0 0 2px rgba(255,255,255,0.2));
+        }
+
         .bar-chart { display: flex; gap: 40px; align-items: flex-end; height: 120px; margin-bottom: 30px; }
         .bar { width: 60px; background: #334155; border-radius: 8px 8px 0 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; transition: height 0.5s; position: relative; }
         .bar-val { font-weight: bold; margin-bottom: 5px; color: white; font-size:1.2rem; }
@@ -724,32 +735,49 @@
         targetDiv.innerHTML = "";
         const width = targetDiv.clientWidth || 300;
         const renderer = new VF.Renderer(targetDiv, VF.Renderer.Backends.SVG);
-        const height = isSolution ? 180 : 250; 
+        const height = isSolution ? 200 : 250; 
         renderer.resize(width, height);
         const ctx = renderer.getContext();
-        const scale = isSolution ? 0.9 : (window.innerWidth < 600 ? 0.95 : 1.1);
+        
+        // ปรับ Scale ให้เหมาะสม
+        const scale = isSolution ? 0.85 : (window.innerWidth < 600 ? 0.95 : 1.1);
         ctx.scale(scale, scale); 
-        ctx.setFillStyle("black"); ctx.setStrokeStyle("black");
+        
+        // สีหลัก (จะกลายเป็นขาวเมื่อถูก Filter Invert)
+        ctx.setFillStyle("black"); 
+        ctx.setStrokeStyle("black");
+
         const staveWidth = (width / scale) - 20;
         const sT = new VF.Stave(10, 10, staveWidth);
         const sB = new VF.Stave(10, 110, staveWidth);
+        
         sT.addClef("treble").addTimeSignature("4/4").addKeySignature(key).setContext(ctx).draw();
         sB.addClef("bass").addTimeSignature("4/4").addKeySignature(key).setContext(ctx).draw();
+        
         const b = data.beats[0];
         const makeNote = (p, clef) => {
             const sn = new VF.StaveNote({ keys: [`${b[p].n}/${b[p].o}`], duration: "w", clef: clef });
             if(b[p].acc) sn.addModifier(new VF.Accidental(b[p].acc));
-            if (isSolution && p === highlightVoice) sn.setStyle({ fillStyle: "#0533EA", strokeStyle: "#0533EA" }); 
-            else if (isGame && p === highlightVoice) sn.setStyle({ fillStyle: "#0533EA", strokeStyle: "#0533EA" });
-            else sn.setStyle({ fillStyle: "#6b7280", strokeStyle: "#6b7280" });
+            
+            // การจัดการสีโน้ต (ใช้สีเดียวกับ UI หลัก)
+            if (p === highlightVoice) {
+                // โน้ตตัวเฉลย/ตัวที่เล่นอยู่ (สีน้ำเงินเข้ม -> Invert เป็นฟ้าสว่าง)
+                sn.setStyle({ fillStyle: "#0533EA", strokeStyle: "#0533EA" }); 
+            } else {
+                // โน้ตตัวอื่นๆ (สีเทา -> Invert เป็นขาวหม่น)
+                sn.setStyle({ fillStyle: "#6b7280", strokeStyle: "#6b7280" });
+            }
             return sn;
         };
+
         const vS = new VF.Voice({num_beats:4, beat_value:4}).addTickables([makeNote('s','treble')]);
         const vA = new VF.Voice({num_beats:4, beat_value:4}).addTickables([makeNote('a','treble')]);
         const vT = new VF.Voice({num_beats:4, beat_value:4}).addTickables([makeNote('t','bass')]);
         const vB = new VF.Voice({num_beats:4, beat_value:4}).addTickables([makeNote('b','bass')]);
+        
         new VF.Formatter().joinVoices([vS, vA]).joinVoices([vT, vB]).format([vS, vA, vT, vB], staveWidth - 50);
         vS.draw(ctx, sT); vA.draw(ctx, sT); vT.draw(ctx, sB); vB.draw(ctx, sB);
+
         if(b.fig) {
             const x = vB.getTickables()[0].getAbsoluteX();
             ctx.setFont("Sarabun", 12, "bold").setFillStyle("black");
